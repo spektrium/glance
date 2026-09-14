@@ -57,7 +57,9 @@ function hslInput(value = "") {
 }
 
 function button(label, extra = "studio-btn") {
-    return elem("button").attrs({ type: "button" }).classes(...extra.split(" ")).text(label);
+    const node = elem("button").attrs({ type: "button" }).classes(...extra.split(" "));
+    node.textContent = label;
+    return node;
 }
 
 const state = { section: "users" };
@@ -356,7 +358,9 @@ function renderPages(data) {
                     }),
                 ),
             ),
-            elem("a").attrs({ href: `${baseURL}/${page.slug}` }).text("Open and edit layout"),
+            elem("a").attrs({ href: `${baseURL}/${page.slug || ""}` }).tap((link) => {
+                link.textContent = "Open and edit layout";
+            }),
         ));
     });
 
