@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -147,6 +148,14 @@ func (a *application) handleAdminCreateUser(w http.ResponseWriter, r *http.Reque
 	}); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	app := a.holder.current()
+	if !a.RequiresAuth && app != nil && app.RequiresAuth {
+		token, err := generateSessionToken(username, app.authSecretKey, time.Now())
+		if err == nil {
+			app.setAuthSessionCookie(w, r, token, time.Now().Add(AUTH_TOKEN_VALID_PERIOD))
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

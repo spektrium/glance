@@ -95,7 +95,8 @@ function inputControl(value, type = "text") {
 function selectControl(value, options) {
     const node = elem("select").classes("studio-select");
     (options || []).forEach((option) => {
-        const item = elem("option").attrs({ value: option.value }).text(option.label);
+        const item = elem("option").attrs({ value: option.value });
+        item.textContent = option.label;
         if (String(option.value) === String(value ?? "")) item.selected = true;
         node.append(item);
     });
