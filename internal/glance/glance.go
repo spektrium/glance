@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,7 +23,7 @@ var (
 
 const STATIC_ASSETS_CACHE_DURATION = 24 * time.Hour
 
-var reservedPageSlugs = []string{"login", "logout"}
+var reservedPageSlugs = []string{"login", "logout", "admin"}
 
 type application struct {
 	Version   string
@@ -42,6 +40,10 @@ type application struct {
 	usernameHashToUsername map[string]string
 	authAttemptsMu         sync.Mutex
 	failedAuthAttempts     map[string]*failedAuthAttempt
+
+	holder     *appHolder
+	configPath string
+	rawConfig  map[string]any
 }
 
 func newApplication(c *config) (*application, error) {
@@ -278,7 +280,10 @@ func (a *application) resolveUserDefinedAssetPath(path string) string {
 }
 
 type templateRequestData struct {
-	Theme *themeProperties
+	Theme     *themeProperties
+	CanManage bool
+	Username  string
+	IsAdminUI bool
 }
 
 type templateData struct {
@@ -301,6 +306,8 @@ func (a *application) populateTemplateRequestData(data *templateRequestData, r *
 	}
 
 	data.Theme = theme
+	data.Username = a.currentUsername(r)
+	data.CanManage = a.canManage(r)
 }
 
 func (a *application) handlePageRequest(w http.ResponseWriter, r *http.Request) {
@@ -442,10 +449,12 @@ func (a *application) VersionedAssetPath(asset string) string {
 		"?v=" + strconv.FormatInt(a.CreatedAt.Unix(), 10)
 }
 
-func (a *application) server() (func() error, func() error) {
+func (a *application) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", a.handlePageRequest)
+	a.registerAdminRoutes(mux)
+	a.registerEditorRoutes(mux)
 	mux.HandleFunc("GET /{page}", a.handlePageRequest)
 
 	mux.HandleFunc("GET /api/pages/{page}/content/{$}", a.handlePageContentRequest)
@@ -490,38 +499,10 @@ func (a *application) server() (func() error, func() error) {
 		w.Write(a.parsedManifest)
 	})
 
-	var absAssetsPath string
 	if a.Config.Server.AssetsPath != "" {
-		absAssetsPath, _ = filepath.Abs(a.Config.Server.AssetsPath)
 		assetsFS := fileServerWithCache(http.Dir(a.Config.Server.AssetsPath), 2*time.Hour)
 		mux.Handle("/assets/{path...}", http.StripPrefix("/assets/", assetsFS))
 	}
 
-	server := http.Server{
-		Addr:              fmt.Sprintf("%s:%d", a.Config.Server.Host, a.Config.Server.Port),
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-	}
-
-	start := func() error {
-		log.Printf("Starting server on %s:%d (base-url: \"%s\", assets-path: \"%s\")\n",
-			a.Config.Server.Host,
-			a.Config.Server.Port,
-			a.Config.Server.BaseURL,
-			absAssetsPath,
-		)
-
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-
-		return nil
-	}
-
-	stop := func() error {
-		return server.Close()
-	}
-
-	return start, stop
+	return mux
 }

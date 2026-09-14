@@ -72,6 +72,7 @@ type user struct {
 	Password           string `yaml:"password"`
 	PasswordHashString string `yaml:"password-hash"`
 	PasswordHash       []byte `yaml:"-"`
+	Admin              bool   `yaml:"admin"`
 }
 
 type page struct {
@@ -92,9 +93,14 @@ type page struct {
 }
 
 func newConfigFromYAML(contents []byte) (*config, error) {
+	config, _, err := loadConfigFromYAML(contents)
+	return config, err
+}
+
+func loadConfigFromYAML(contents []byte) (*config, map[string]any, error) {
 	contents, err := parseConfigVariables(contents)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	config := &config{}
@@ -102,30 +108,38 @@ func newConfigFromYAML(contents []byte) (*config, error) {
 
 	err = yaml.Unmarshal(contents, config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	var raw map[string]any
+	if err = yaml.Unmarshal(contents, &raw); err != nil {
+		return nil, nil, err
+	}
+	if raw == nil {
+		raw = map[string]any{}
 	}
 
 	if err = isConfigStateValid(config); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for p := range config.Pages {
 		for w := range config.Pages[p].HeadWidgets {
 			if err := config.Pages[p].HeadWidgets[w].initialize(); err != nil {
-				return nil, formatWidgetInitError(err, config.Pages[p].HeadWidgets[w])
+				return nil, nil, formatWidgetInitError(err, config.Pages[p].HeadWidgets[w])
 			}
 		}
 
 		for c := range config.Pages[p].Columns {
 			for w := range config.Pages[p].Columns[c].Widgets {
 				if err := config.Pages[p].Columns[c].Widgets[w].initialize(); err != nil {
-					return nil, formatWidgetInitError(err, config.Pages[p].Columns[c].Widgets[w])
+					return nil, nil, formatWidgetInitError(err, config.Pages[p].Columns[c].Widgets[w])
 				}
 			}
 		}
 	}
 
-	return config, nil
+	return config, raw, nil
 }
 
 var envVariableNamePattern = regexp.MustCompile(`^[A-Z0-9_]+$`)

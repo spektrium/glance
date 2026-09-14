@@ -247,6 +247,85 @@ func (a *application) handleAuthenticationAttempt(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusOK)
 }
 
+func (a *application) currentUsername(r *http.Request) string {
+	if !a.RequiresAuth {
+		return ""
+	}
+
+	token, err := r.Cookie(AUTH_SESSION_COOKIE_NAME)
+	if err != nil || token.Value == "" {
+		return ""
+	}
+
+	usernameHash, _, err := verifySessionToken(token.Value, a.authSecretKey, time.Now())
+	if err != nil {
+		return ""
+	}
+
+	username, exists := a.usernameHashToUsername[string(usernameHash)]
+	if !exists {
+		return ""
+	}
+
+	if _, exists = a.Config.Auth.Users[username]; !exists {
+		return ""
+	}
+
+	return username
+}
+
+func (a *application) hasAdminUsers() bool {
+	for _, user := range a.Config.Auth.Users {
+		if user.Admin {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (a *application) canManage(r *http.Request) bool {
+	if !a.RequiresAuth {
+		return true
+	}
+
+	username := a.currentUsername(r)
+	if username == "" {
+		return false
+	}
+
+	user := a.Config.Auth.Users[username]
+	if user == nil {
+		return false
+	}
+
+	if a.hasAdminUsers() {
+		return user.Admin
+	}
+
+	return true
+}
+
+func (a *application) handleForbiddenResponse(w http.ResponseWriter, r *http.Request, fallback doWhenUnauthorized) bool {
+	if a.handleUnauthorizedResponse(w, r, fallback) {
+		return true
+	}
+
+	if a.canManage(r) {
+		return false
+	}
+
+	switch fallback {
+	case redirectToLogin:
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Forbidden"))
+	case showUnauthorizedJSON:
+		writeJSONError(w, http.StatusForbidden, "Forbidden")
+	}
+
+	return true
+}
+
 func (a *application) isAuthorized(w http.ResponseWriter, r *http.Request) bool {
 	if !a.RequiresAuth {
 		return true

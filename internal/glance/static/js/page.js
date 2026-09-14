@@ -2,6 +2,7 @@ import { setupPopovers } from './popover.js';
 import { setupMasonries } from './masonry.js';
 import { throttledDebounce, isElementVisible, openURLInNewTab } from './utils.js';
 import { elem, find, findAll } from './templating.js';
+import { setupEditor } from './editor.js';
 
 async function fetchPageContent(pageData) {
     // TODO: handle non 200 status codes/time outs
@@ -781,6 +782,10 @@ async function setupPage() {
         setTimeout(() => {
             document.body.classList.add("page-columns-transitioned");
         }, 300);
+
+        if (pageData.canManage) {
+            setupEditor();
+        }
     }
 }
 

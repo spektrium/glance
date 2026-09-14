@@ -3,7 +3,7 @@
 {{ end }}
 
 {{ if .Page.HeadWidgets }}
-<div class="head-widgets">
+<div class="head-widgets" data-editor-zone="head-widgets">
     {{- range .Page.HeadWidgets }}
     {{- .Render }}
     {{- end }}
@@ -11,9 +11,9 @@
 {{ end }}
 
 <div class="page-columns">
-{{- range .Page.Columns }}
-    <div class="page-column page-column-{{ .Size }}">
-        {{- range .Widgets }}
+{{- range $i, $column := .Page.Columns }}
+    <div class="page-column page-column-{{ $column.Size }}" data-column-index="{{ $i }}" data-column-size="{{ $column.Size }}" data-editor-zone="columns.{{ $i }}.widgets">
+        {{- range $column.Widgets }}
         {{- .Render }}
         {{- end }}
     </div>
