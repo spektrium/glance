@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -91,19 +93,23 @@ func Main() int {
 }
 
 func serveApp(configPath string) error {
-	// TODO: refactor if this gets any more complex, the current implementation is
-	// difficult to reason about due to all of the callbacks and simultaneous operations,
-	// use a single goroutine and a channel to initiate synchronous changes to the server
+	// Keep a single HTTP server alive and swap the application on config changes so
+	// visual editing and the admin panel can persist YAML without dropping connections.
+	holder := &appHolder{configPath: configPath}
 	exitChannel := make(chan struct{})
 	hadValidConfigOnStartup := false
-	var stopServer func() error
+	var httpServer *http.Server
 
 	onChange := func(newContents []byte) {
-		if stopServer != nil {
+		if holder.consumeSkip() {
+			return
+		}
+
+		if httpServer != nil {
 			log.Println("Config file changed, reloading...")
 		}
 
-		config, err := newConfigFromYAML(newContents)
+		app, err := holder.loadFromYAML(newContents)
 		if err != nil {
 			log.Printf("Config has errors: %v", err)
 
@@ -114,33 +120,36 @@ func serveApp(configPath string) error {
 			return
 		}
 
-		app, err := newApplication(config)
-		if err != nil {
-			log.Printf("Failed to create application: %v", err)
+		holder.swap(app, app.routes())
 
-			if !hadValidConfigOnStartup {
-				close(exitChannel)
-			}
-
+		if hadValidConfigOnStartup {
 			return
 		}
 
-		if !hadValidConfigOnStartup {
-			hadValidConfigOnStartup = true
+		hadValidConfigOnStartup = true
+		addr := fmt.Sprintf("%s:%d", app.Config.Server.Host, app.Config.Server.Port)
+		absAssetsPath := ""
+		if app.Config.Server.AssetsPath != "" {
+			absAssetsPath, _ = filepath.Abs(app.Config.Server.AssetsPath)
 		}
 
-		if stopServer != nil {
-			if err := stopServer(); err != nil {
-				log.Printf("Error while trying to stop server: %v", err)
-			}
+		httpServer = &http.Server{
+			Addr:              addr,
+			Handler:           holder,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
 		}
 
 		go func() {
-			var startServer func() error
-			startServer, stopServer = app.server()
+			log.Printf("Starting server on %s (base-url: \"%s\", assets-path: \"%s\")\n",
+				addr,
+				app.Config.Server.BaseURL,
+				absAssetsPath,
+			)
 
-			if err := startServer(); err != nil {
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Printf("Failed to start server: %v", err)
+				close(exitChannel)
 			}
 		}()
 	}
@@ -159,21 +168,7 @@ func serveApp(configPath string) error {
 		defer stopWatching()
 	} else {
 		log.Printf("Error starting file watcher, config file changes will require a manual restart. (%v)", err)
-
-		config, err := newConfigFromYAML(configContents)
-		if err != nil {
-			return fmt.Errorf("validating config file: %w", err)
-		}
-
-		app, err := newApplication(config)
-		if err != nil {
-			return fmt.Errorf("creating application: %w", err)
-		}
-
-		startServer, _ := app.server()
-		if err := startServer(); err != nil {
-			return fmt.Errorf("starting server: %w", err)
-		}
+		onChange(configContents)
 	}
 
 	<-exitChannel

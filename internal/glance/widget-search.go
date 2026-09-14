@@ -9,9 +9,9 @@ import (
 var searchWidgetTemplate = mustParseTemplate("search.html", "widget-base.html")
 
 type SearchBang struct {
-	Title    string
-	Shortcut string
-	URL      string
+	Title    string `yaml:"title"`
+	Shortcut string `yaml:"shortcut"`
+	URL      string `yaml:"url"`
 }
 
 type searchWidget struct {
@@ -36,8 +36,8 @@ var searchEngines = map[string]string{
 	"google":     "https://www.google.com/search?q={QUERY}",
 	"bing":       "https://www.bing.com/search?q={QUERY}",
 	"perplexity": "https://www.perplexity.ai/search?q={QUERY}",
-	"kagi": "https://kagi.com/search?q={QUERY}",
-	"startpage": "https://www.startpage.com/search?q={QUERY}",
+	"kagi":       "https://kagi.com/search?q={QUERY}",
+	"startpage":  "https://www.startpage.com/search?q={QUERY}",
 }
 
 func (widget *searchWidget) initialize() error {
